@@ -13,7 +13,6 @@ All benchmarks and opencode tool recovery tests were run on a **Tesla P40 (23 GB
 | model | params | gen tok/s | max VRAM ctx | tool recovery | verdict |
 |-------|--------|-----------|--------------|---------------|---------|
 | gemma4:e2b | 5.1B | **~78** | 131072 | ✗ no | explicit tasks only |
-| gemma4:e4b | 8.0B | ~48 | 131072 | ✗ no | awkward middle ground |
 | gemma4:26b | 25.8B | ~44 | 77824 | ✓ yes | best all-rounder |
 | qwen3-coder:30b-a3b | 30.5B | ~53 | 49152 | ✓ yes | fastest capable model |
 | glm-4.7-flash | ~30B | ~35 | 43520 | ✓ yes | lowest ceiling |
@@ -42,7 +41,7 @@ gemma4:e4b  → malformed glob    → 0 matches → "Did you mean to list all fi
 gemma4:26b  → glob "**/*Modelfile*" → 8 matches → "8" ✓
 ```
 
-Small models (e2b, e4b) call one tool, accept the result, and stop. Larger models
+Small models (e2b) call one tool, accept the result, and stop. Larger models
 (26b, qwen3-coder) chain multiple tool calls to investigate and self-correct.
 
 ---
@@ -62,21 +61,6 @@ Small models (e2b, e4b) call one tool, accept the result, and stop. Larger model
 | num_ctx | gen tok/s | VRAM |
 |---------|-----------|------|
 | 8192–131072 | ~78 | fully in VRAM (no cliff) |
-
----
-
-### gemma4:e4b — `gemma4:e4b_opencode`
-
-**Use for: not recommended** — slower than e2b, same recovery limitations as e2b
-
-- ~48 tok/s — slower than both e2b and 26b
-- No VRAM cliff: full 131072-token context in VRAM (~4.5 GB weights)
-- Does not recover from tool errors (asks user for clarification instead)
-- No clear advantage over e2b (speed) or 26b (capability)
-
-| num_ctx | gen tok/s | VRAM |
-|---------|-----------|------|
-| 8192–131072 | ~48 | fully in VRAM (no cliff) |
 
 ---
 
@@ -152,4 +136,3 @@ Copy `opencode.example.json` to `~/.config/opencode/opencode.json` (or merge the
 - **VRAM cliff benchmarking** — test in 4K–8K increments around the suspected cliff, then narrow with 1K–2K steps to find the exact boundary. The cliff is sharp (one step from full speed to partial offload).
 - **Temperature=1 is fine for GLM and Gemma** — trained at this setting. The SYSTEM instruction is the effective fix for non-empty content alongside tool calls, not temperature.
 - **`/no_think` only applies to Qwen3** — GLM and Gemma handle thinking internally via their PARSER.
-- **gemma4:e4b is the odd one out** — slower than e2b, same limitations, no advantage over either extreme.
