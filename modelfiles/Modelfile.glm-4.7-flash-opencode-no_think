@@ -1,0 +1,79 @@
+# =============================================================================
+# Model: glm-4.7-flash:opencode_no_think
+# Base:  glm-4.7-flash-max-ctx:latest (29.9B MoE-lite, Q4_K_M)
+# GPU:   Tesla P40, 23040 MiB VRAM
+# Built: 2026-05-02
+#
+# PURPOSE
+# -------
+# Optimised for opencode and similar agentic tool-use harnesses.
+# Corrects the original model's num_ctx which was close to the VRAM ceiling
+# but not precisely calibrated. Adds opencode-compatible system instructions.
+#
+# ORIGINAL MODEL (glm-4.7-flash-max-ctx:latest)
+# ----------------------------------------------
+#   num_ctx    43000   — user-set, believed to be VRAM limit (close, but not exact)
+#   temperature    1   — kept as-is (GLM trained at temp=1, see note below)
+#
+# CHANGES FROM glm-4.7-flash-max-ctx:latest
+# ------------------------------------------
+# 1. num_ctx 43520  (was 43000)
+#    Benchmarked the exact VRAM cliff on P40. The cliff falls between 43520
+#    and 44032 — so 43520 is the true maximum that stays fully in VRAM.
+#    The original 43000 was correct in intent but left 520 tokens unused.
+#
+# 2. temperature 1 — kept unchanged
+#    GLM-4.7-flash was trained at temperature=1 and performs consistently
+#    there. Tests comparing temp=1 vs temp=0.6 showed no improvement in
+#    tool-call JSON reliability at lower temperature (both had ~1/5 runs with
+#    non-empty content; the SYSTEM instruction below is the real fix).
+#
+# 3. SYSTEM — explicit empty-content instruction
+#    At both temperature settings, GLM occasionally adds a brief preamble
+#    in the content field alongside tool calls ("I'll read the file for you.",
+#    etc.). The instruction below eliminates this reliably.
+#
+# NOTE: GLM does not have a /no_think token like Qwen3. GLM-4.7-flash is
+# already a "flash" variant — its thinking overhead is minimal. The _no_think
+# suffix here signals the same intent (fast, direct tool use) for naming
+# consistency with the qwen3-coder variants.
+#
+# BENCHMARK — Tesla P40, 2026-05-02
+# ----------------------------------
+# Generation speed sweep (num_predict=200, short prompt):
+#
+#   num_ctx   gen tok/s   prompt tok/s   notes
+#   -------   ---------   ------------   -----
+#     8192       35.66         453.34    fully in VRAM
+#    16384       35.65         455.54    fully in VRAM
+#    24576       35.58         453.67    fully in VRAM
+#    32768       35.49         452.20    fully in VRAM
+#    40960       35.25         453.47    fully in VRAM
+#    43000       35.57         454.39    fully in VRAM  (original setting)
+#    43520       35.71         —         fully in VRAM  ← chosen (true ceiling)
+#    44032       26.33         —         partial CPU offload — cliff starts here
+#    45056       26.12         —         partial CPU offload
+#    49152       19.80         412.64    partial CPU offload
+#    57344       17.40         313.97    partial CPU offload
+#
+# TOOL-CALL TESTS (all passed)
+# ----------------------------
+#   ✓ Basic single tool call            — empty content, correct args
+#   ✓ Parallel tool calls               — combined into one smart bash command
+#   ✓ opencode system prompt override   — behaves correctly when system replaced
+#   ~ Occasional non-empty content      — ~1/5 runs without SYSTEM instruction;
+#                                         SYSTEM instruction below fixes this
+# =============================================================================
+
+FROM glm-4.7-flash-max-ctx:latest
+
+# 43520 = true VRAM ceiling on P40 (cliff begins at 44032).
+# 520 tokens more than the original 43000 setting.
+PARAMETER num_ctx 43520
+
+# Kept at 1 — GLM-4.7-flash was trained at this temperature and is consistent.
+# Lowering to 0.6 showed no improvement in tool-call reliability.
+PARAMETER temperature 1
+
+SYSTEM """You are an expert software engineer assistant. Follow all tool-use instructions exactly as specified. Use the tools provided to read, write, and execute code. Respond concisely with working solutions.
+IMPORTANT: When making tool calls, the message content MUST be empty. Do not narrate, explain, or announce what you are about to do — output only the tool call."""

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "ollama": {
+      "options": {
+        "baseURL": "http://localhost:11434/v1"
+      },
+      "models": {
+        "qwen3-coder:30b-a3b-q4_K_M_opencode_no_think": {
+          "name": "qwen3-coder:30b-a3b-q4_K_M_opencode_no_think"
+        },
+        "qwen3-coder:30b-a3b-q4_K_M_opencode_slow_max_ctx_thinking": {
+          "name": "qwen3-coder:30b-a3b-q4_K_M_opencode_slow_max_ctx_thinking"
+        },
+        "glm-4.7-flash:opencode_no_think": {
+          "name": "glm-4.7-flash:opencode_no_think"
+        },
+        "glm-4.7-flash:opencode_slow_max_ctx_thinking": {
+          "name": "glm-4.7-flash:opencode_slow_max_ctx_thinking"
+        },
+        "gemma4:26b_opencode_no_think": {
+          "name": "gemma4:26b_opencode_no_think"
+        },
+        "gemma4:26b_opencode_slow_max_ctx_thinking": {
+          "name": "gemma4:26b_opencode_slow_max_ctx_thinking"
+        },
+        "gemma4:e2b_opencode": {
+          "name": "gemma4:e2b_opencode"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,84 @@
+# =============================================================================
+# Model: qwen3-coder:30b-a3b-q4_K_M_opencode_slow_max_ctx_thinking
+# Base:  qwen3-coder:30b-a3b-q4_K_M (30.5B MoE, 3B active params, Q4_K_M)
+# GPU:   Tesla P40, 23040 MiB VRAM
+# Built: 2026-05-02
+#
+# PURPOSE
+# -------
+# Maximum context variant. Use for whole-repo analysis, large diffs, or long
+# opencode sessions where context depth matters more than response latency.
+# Thinking mode is intentionally left enabled: at ~15 tok/s the user is already
+# waiting, and reasoning improves quality on complex large-context tasks.
+#
+# For fast tool-use loops use qwen3-coder:30b-a3b-q4_K_M_opencode_no_think
+# instead (~53 tok/s, 48K context).
+#
+# CHANGES FROM BASE MODEL
+# -----------------------
+# 1. num_ctx 262144
+#    Full native context length of the model. At this size the KV cache spills
+#    to CPU RAM (P40 VRAM is 23 GB; model weights alone consume ~17.2 GB).
+#    Generation speed falls to ~15 tok/s but remains usable. See benchmark.
+#
+# 2. temperature 0.6 (was 0.7)
+#    Tighter distribution for reliable tool-call JSON even on long contexts.
+#
+# 3. SYSTEM — no /no_think (thinking enabled)
+#    Extended reasoning is valuable when working through large codebases.
+#    The speed penalty of thinking tokens is already absorbed by the lower
+#    base generation rate of this variant.
+#
+# 4. SYSTEM — explicit empty-content instruction (same as no_think variant)
+#    Prevents occasional preamble text in content alongside tool calls.
+#
+# BENCHMARK — Tesla P40, 2026-05-02
+# ----------------------------------
+# Generation speed sweep across the full context range (num_predict=200):
+#
+#   num_ctx   gen tok/s   notes
+#   -------   ---------   -----
+#     8192       52.59    fully in VRAM (reference)
+#    49152       53.00    fully in VRAM (fast variant ceiling)
+#    57344       25.10    partial CPU offload begins
+#    65536       25.37    partial offload
+#    73728       22.80    partial offload
+#    81920       21.21    partial offload
+#    98304       19.89    partial offload
+#   114688       18.09    partial offload
+#   131072       19.63    partial offload
+#   163840       16.29    heavy offload
+#   196608       17.18    heavy offload
+#   229376       16.35    heavy offload
+#   262144       14.84    full native context — still usable  ← chosen
+#
+# Speed is stable across the 57K–262K range (15–25 tok/s). The main cliff is
+# the single step from 49K→57K where VRAM is exhausted.
+#
+# TOOL-CALL TESTS (all passed)
+# ----------------------------
+#   ✓ Basic single tool call            — empty content, correct args
+#   ✓ Multi-turn (tool result → reply)  — correctly consumed tool result
+#   ✓ Parallel tool calls               — 2 calls in one turn, correct args
+#   ✓ opencode system prompt override   — behaves correctly when system replaced
+# =============================================================================
+
+FROM qwen3-coder:30b-a3b-q4_K_M
+
+# 262144 (256K) = full native context. KV cache spills to CPU RAM above 49152.
+# Generation speed ~15 tok/s vs ~53 tok/s for the no_think variant.
+PARAMETER num_ctx 262144
+
+PARAMETER repeat_penalty 1.05
+PARAMETER stop <|im_start|>
+PARAMETER stop <|im_end|>
+PARAMETER stop <|endoftext|>
+# Lowered from 0.7 for more reliable tool-call JSON output
+PARAMETER temperature 0.6
+PARAMETER top_k 20
+PARAMETER top_p 0.8
+
+# Thinking mode enabled — /no_think intentionally omitted.
+# Empty-content rule — prevents occasional preamble text alongside tool calls.
+SYSTEM """You are an expert software engineer assistant. Follow all tool-use instructions exactly as specified. Use the tools provided to read, write, and execute code. Respond concisely with working solutions.
+IMPORTANT: When making tool calls, the message content MUST be empty. Do not narrate, explain, or announce what you are about to do — output only the tool call."""

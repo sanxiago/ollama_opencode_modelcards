@@ -1,0 +1,82 @@
+# =============================================================================
+# Model: gemma4:26b_opencode_no_think
+# Base:  gemma4:26b (25.8B, Q4_K_M, vision + tools + thinking)
+# GPU:   Tesla P40, 23040 MiB VRAM
+# Built: 2026-05-02
+#
+# EVALUATION VERDICT: HIGHLY RECOMMENDED
+# ---------------------------------------
+# Gemma4:26b is the best-performing model tested in this suite for opencode:
+#   - Highest VRAM ceiling (77824 tokens vs 49152 for qwen3-coder, 43520 for GLM)
+#   - Clean tool calling: 5/5 runs had empty content alongside tool calls with
+#     no system instruction needed — better out-of-the-box than other models
+#   - Correct multi-turn tool result handling
+#   - No visible thinking blocks (PARSER strips them internally)
+#   - Vision capability as a bonus for multimodal tasks
+#
+# NOTE ON "no_think" SUFFIX
+# -------------------------
+# Gemma4 does not have a /no_think toggle like Qwen3. Its thinking is handled
+# entirely by the RENDERER/PARSER — <think> blocks are generated and stripped
+# internally, never visible to the client. The suffix signals the same intent
+# (fast, direct tool use) for naming consistency with the other variants.
+#
+# CHANGES FROM BASE gemma4:26b
+# ----------------------------
+# 1. num_ctx 77824
+#    Base has no num_ctx set (ollama defaults to 2048 — too small for opencode).
+#    77824 is the exact VRAM ceiling on P40: ~44 tok/s fully in VRAM.
+#    The cliff falls between 77824 and 78848.
+#
+# 2. temperature 1 — kept unchanged
+#    Tool call JSON was 5/5 clean at temperature=1. No benefit in reducing it.
+#
+# 3. SYSTEM — explicit empty-content instruction
+#    Tool calls were already clean at temp=1, but the instruction is added as
+#    a safety net consistent with other opencode variants in this suite.
+#
+# BENCHMARK — Tesla P40, 2026-05-02
+# ----------------------------------
+# Generation speed sweep (num_predict=200, short prompt):
+#
+#   num_ctx   gen tok/s   prompt tok/s   notes
+#   -------   ---------   ------------   -----
+#     8192       44.62         235.38    fully in VRAM
+#    16384       44.74         261.32    fully in VRAM
+#    32768       44.16         236.75    fully in VRAM
+#    49152       44.47         228.97    fully in VRAM
+#    65536       44.69         253.11    fully in VRAM
+#    69632       44.73         —         fully in VRAM
+#    73728       44.80         —         fully in VRAM
+#    77824       44.72         —         fully in VRAM  ← chosen (true ceiling)
+#    78848       18.26         —         partial CPU offload — cliff starts here
+#    81920       18.15         —         partial CPU offload
+#
+# TOOL-CALL TESTS (all passed)
+# ----------------------------
+#   ✓ Basic single tool call            — empty content, correct args
+#   ✓ Multi-turn (tool result → reply)  — correct natural language reply
+#   ✓ Content consistency (5/5 runs)    — all empty content, zero preamble
+#   ✓ opencode system prompt override   — no issues
+#
+# COMPARISON vs OTHER MODELS IN THIS SUITE (P40, 2026-05-02)
+# -----------------------------------------------------------
+#   model                  gen tok/s  max VRAM ctx  tool call quality
+#   -----                  ---------  ------------  -----------------
+#   gemma4:26b                 44.62       77824    excellent (5/5 clean)
+#   qwen3-coder:30b-a3b        52.83       49152    good (needs SYSTEM fix)
+#   glm-4.7-flash              35.57       43520    good (needs SYSTEM fix)
+# =============================================================================
+
+FROM gemma4:26b
+
+# 77824 = true VRAM ceiling on P40 (cliff at 78848).
+# Highest max-ctx of any model tested in this suite.
+PARAMETER num_ctx 77824
+
+PARAMETER temperature 1
+PARAMETER top_k 64
+PARAMETER top_p 0.95
+
+SYSTEM """You are an expert software engineer assistant. Follow all tool-use instructions exactly as specified. Use the tools provided to read, write, and execute code. Respond concisely with working solutions.
+IMPORTANT: When making tool calls, the message content MUST be empty. Do not narrate, explain, or announce what you are about to do — output only the tool call."""

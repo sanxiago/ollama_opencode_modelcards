@@ -1,0 +1,79 @@
+# =============================================================================
+# Model: qwen3-coder:30b-a3b-q4_K_M_opencode_no_think
+# Base:  qwen3-coder:30b-a3b-q4_K_M (30.5B MoE, 3B active params, Q4_K_M)
+# GPU:   Tesla P40, 23040 MiB VRAM
+# Built: 2026-05-02
+#
+# PURPOSE
+# -------
+# Optimised for opencode (https://opencode.ai) and similar agentic harnesses
+# that drive a tool-use loop. Prioritises low latency and reliable tool calls
+# over deep reasoning.
+#
+# CHANGES FROM BASE MODEL
+# -----------------------
+# 1. num_ctx 49152
+#    The base model ships with no num_ctx. Ollama's default is 2048, which is
+#    too small to fit opencode's system prompt (tool descriptions + instructions
+#    alone exceed 2048 tokens). The model would receive a truncated system and
+#    appear to "not understand the harness". 49152 is the maximum that keeps
+#    KV cache fully in VRAM at full generation speed (see benchmark below).
+#
+# 2. temperature 0.6 (was 0.7)
+#    Slightly tighter distribution for more reliable tool-call JSON formatting.
+#
+# 3. SYSTEM — /no_think prefix
+#    Qwen3 models enter extended reasoning mode by default. /no_think disables
+#    it. Opencode drives its own iteration loop; <think> blocks add latency
+#    without improving agentic outcomes on short tool-use turns.
+#
+# 4. SYSTEM — explicit empty-content instruction
+#    Without it the model occasionally adds a brief Chinese or English preamble
+#    in the content field alongside tool calls (non-deterministic, ~1/5 runs).
+#    Most clients handle non-empty content + tool_calls correctly, but the
+#    instruction eliminates the noise.
+#
+# BENCHMARK — Tesla P40, 2026-05-02
+# ----------------------------------
+# Generation speed at different context sizes (num_predict=200, short prompt):
+#
+#   num_ctx   gen tok/s   prompt tok/s   notes
+#   -------   ---------   ------------   -----
+#     8192       52.59         436.07    fully in VRAM
+#    16384       52.26         441.59    fully in VRAM
+#    24576       53.06         493.10    fully in VRAM
+#    32768       52.83         448.56    fully in VRAM
+#    40960       53.16         451.67    fully in VRAM
+#    49152       53.00         453.00    fully in VRAM  ← chosen
+#    57344       22.60         324.68    partial CPU offload — cliff starts here
+#    65536       25.42         152.97    partial CPU offload
+#
+# TOOL-CALL TESTS (all passed)
+# ----------------------------
+#   ✓ Basic single tool call            — empty content, correct args
+#   ✓ Multi-turn (tool result → reply)  — correctly consumed tool result
+#   ✓ Parallel tool calls               — 2 calls in one turn, correct args
+#   ✓ tool_choice: required             — always calls, never skips
+#   ✓ opencode system prompt override   — behaves correctly when system replaced
+# =============================================================================
+
+FROM qwen3-coder:30b-a3b-q4_K_M
+
+# 49152 (48K) = maximum fully-in-VRAM context on P40.
+# Above this threshold generation drops from ~53 tok/s to ~22 tok/s.
+PARAMETER num_ctx 49152
+
+PARAMETER repeat_penalty 1.05
+PARAMETER stop <|im_start|>
+PARAMETER stop <|im_end|>
+PARAMETER stop <|endoftext|>
+# Lowered from 0.7 for more reliable tool-call JSON output
+PARAMETER temperature 0.6
+PARAMETER top_k 20
+PARAMETER top_p 0.8
+
+# /no_think  — disables Qwen3 extended reasoning chains (fast, direct tool use)
+# Empty-content rule — prevents occasional preamble text alongside tool calls
+SYSTEM """/no_think
+You are an expert software engineer assistant. Follow all tool-use instructions exactly as specified. Use the tools provided to read, write, and execute code. Respond concisely with working solutions.
+IMPORTANT: When making tool calls, the message content MUST be empty. Do not narrate, explain, or announce what you are about to do — output only the tool call."""

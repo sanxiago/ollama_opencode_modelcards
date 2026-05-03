@@ -1,0 +1,57 @@
+# =============================================================================
+# Model: gemma4:26b_opencode_slow_max_ctx_thinking
+# Base:  gemma4:26b (25.8B, Q4_K_M, vision + tools + thinking)
+# GPU:   Tesla P40, 23040 MiB VRAM
+# Built: 2026-05-02
+#
+# PURPOSE
+# -------
+# Maximum context variant for whole-repo analysis, large diffs, or very long
+# opencode sessions. KV cache spills to CPU RAM above 77824 tokens but the
+# model remains usable (~10 tok/s) all the way to the native 262144 limit.
+#
+# For fast tool-use loops use gemma4:26b_opencode_no_think (~44 tok/s, 77824
+# token context — the highest VRAM ceiling in this tested suite).
+#
+# NOTE ON THINKING
+# ----------------
+# Gemma4's thinking is handled internally by the PARSER — it is never visible
+# to the client regardless of this variant. The _thinking suffix signals that
+# this variant is intended for deep/complex tasks where the model's internal
+# reasoning (however expressed) is beneficial. No explicit toggle is available
+# or needed.
+#
+# CHANGES FROM BASE gemma4:26b
+# ----------------------------
+# 1. num_ctx 262144 — full native context length
+# 2. temperature 1 — unchanged
+# 3. SYSTEM — empty-content instruction (same as no_think variant)
+#
+# BENCHMARK — Tesla P40, 2026-05-02
+# ----------------------------------
+# High-context sweep (num_predict=200):
+#
+#   num_ctx   gen tok/s   notes
+#   -------   ---------   -----
+#    77824       44.72    fully in VRAM (fast variant)
+#    78848       18.26    partial CPU offload begins
+#    81920       17.68    partial offload
+#    98304       19.08    partial offload
+#   131072       13.74    partial offload
+#   163840       12.92    partial offload
+#   196608       11.23    partial offload
+#   229376       10.61    partial offload
+#   262144       10.07    native context limit — still usable  ← chosen
+# =============================================================================
+
+FROM gemma4:26b
+
+# 262144 = full native context. KV cache spills to CPU RAM; ~10 tok/s on P40.
+PARAMETER num_ctx 262144
+
+PARAMETER temperature 1
+PARAMETER top_k 64
+PARAMETER top_p 0.95
+
+SYSTEM """You are an expert software engineer assistant. Follow all tool-use instructions exactly as specified. Use the tools provided to read, write, and execute code. Respond concisely with working solutions.
+IMPORTANT: When making tool calls, the message content MUST be empty. Do not narrate, explain, or announce what you are about to do — output only the tool call."""

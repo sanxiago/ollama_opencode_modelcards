@@ -1,0 +1,60 @@
+# =============================================================================
+# Model: glm-4.7-flash:opencode_slow_max_ctx_thinking
+# Base:  glm-4.7-flash-max-ctx:latest (29.9B MoE-lite, Q4_K_M)
+# GPU:   Tesla P40, 23040 MiB VRAM
+# Built: 2026-05-02
+#
+# PURPOSE
+# -------
+# Maximum context variant. Use for whole-repo analysis, very long opencode
+# sessions, or large diffs where context depth matters more than latency.
+# At ~10 tok/s the user is already waiting; thinking is left enabled to
+# maximise quality on complex large-context tasks.
+#
+# For fast tool-use loops use glm-4.7-flash:opencode_no_think (~35 tok/s,
+# 43520 token context).
+#
+# CHANGES FROM glm-4.7-flash-max-ctx:latest
+# ------------------------------------------
+# 1. num_ctx 202752
+#    Full native context length of the model. The KV cache spills heavily to
+#    CPU RAM above 43520 tokens, but generation remains usable (~10 tok/s) all
+#    the way to the native limit. See benchmark.
+#
+# 2. temperature 1 — kept unchanged (see note in no_think variant)
+#
+# 3. SYSTEM — explicit empty-content instruction (same as no_think variant)
+#
+# BENCHMARK — Tesla P40, 2026-05-02
+# ----------------------------------
+# High-context sweep (num_predict=200):
+#
+#   num_ctx   gen tok/s   notes
+#   -------   ---------   -----
+#    43520       35.71    fully in VRAM (fast variant)
+#    44032       26.33    partial CPU offload begins
+#    57344       17.40    partial offload
+#    73728       15.68    partial offload
+#    81920       14.46    partial offload
+#    98304       13.95    partial offload
+#   114688       13.13    partial offload
+#   131072       11.83    partial offload
+#   163840       10.20    partial offload
+#   196608       10.24    partial offload
+#   202752        9.98    native context limit — still usable  ← chosen
+#
+# Speed declines gradually from the cliff at 44032 to ~10 tok/s at the native
+# limit. No hard failure observed at any tested size.
+#
+# TOOL-CALL TESTS (all passed, same as no_think variant)
+# =============================================================================
+
+FROM glm-4.7-flash-max-ctx:latest
+
+# 202752 = full native context. KV cache spills to CPU RAM; ~10 tok/s on P40.
+PARAMETER num_ctx 202752
+
+PARAMETER temperature 1
+
+SYSTEM """You are an expert software engineer assistant. Follow all tool-use instructions exactly as specified. Use the tools provided to read, write, and execute code. Respond concisely with working solutions.
+IMPORTANT: When making tool calls, the message content MUST be empty. Do not narrate, explain, or announce what you are about to do — output only the tool call."""

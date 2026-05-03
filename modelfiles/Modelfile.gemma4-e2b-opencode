@@ -1,0 +1,79 @@
+# =============================================================================
+# Model: gemma4:e2b_opencode
+# Base:  gemma4:e2b (5.1B, Q4_K_M, vision + audio + tools + thinking)
+# GPU:   Tesla P40, 23040 MiB VRAM
+# Built: 2026-05-02
+#
+# EVALUATION VERDICT: EXCEPTIONAL — BEST SPEED IN THE SUITE
+# ----------------------------------------------------------
+# gemma4:e2b is the fastest model tested on this hardware. Because the weights
+# are only ~2.9 GB, the full native 131072-token KV cache fits entirely in the
+# remaining ~20 GB of VRAM. There is NO context/speed cliff — performance is
+# flat from 8K all the way to 131072 tokens.
+#
+# There is no "slow" variant for this model. A single model card covers all
+# use cases from quick tool-use loops to long coding sessions.
+#
+# CHANGES FROM BASE gemma4:e2b
+# ----------------------------
+# 1. num_ctx 131072 — full native context length
+#    Base has no num_ctx (ollama defaults to 2048). 131072 is the native limit
+#    and fits fully in VRAM at full speed. No tradeoff needed.
+#
+# 2. temperature 1 — unchanged (Gemma trained at this setting)
+#
+# 3. SYSTEM — explicit empty-content instruction
+#    Tool calls were 5/5 clean without it; added as a safety net for
+#    consistency with the rest of the opencode model suite.
+#
+# NOTE: No "no_think" / "thinking" suffix needed — since there is no
+# performance cliff, no variant split is warranted.
+#
+# BENCHMARK — Tesla P40, 2026-05-02
+# ----------------------------------
+# Generation speed sweep (num_predict=200, short prompt):
+#
+#   num_ctx   gen tok/s   prompt tok/s   notes
+#   -------   ---------   ------------   -----
+#     8192       79.18         737.77    fully in VRAM
+#    16384       78.03         742.76    fully in VRAM
+#    32768       78.68         693.09    fully in VRAM
+#    49152       76.43         733.19    fully in VRAM
+#    65536       77.03         693.78    fully in VRAM
+#    81920       77.60         673.04    fully in VRAM
+#    98304       78.27         692.57    fully in VRAM
+#   114688       78.46         675.83    fully in VRAM
+#   131072       78.11         686.92    fully in VRAM  ← chosen (native limit)
+#
+#   No cliff observed. Entire native context fits in VRAM (~2.9 GB weights,
+#   ~20 GB available for KV cache on P40).
+#
+# TOOL-CALL TESTS (all passed)
+# ----------------------------
+#   ✓ Basic single tool call           — empty content, correct args
+#   ✓ Content consistency (5/5 runs)   — all empty content, zero preamble
+#
+# FULL SUITE COMPARISON — P40, 2026-05-02
+# ----------------------------------------
+#   model                    gen tok/s  max VRAM ctx  tool quality
+#   -----                    ---------  ------------  ------------
+#   gemma4:e2b (this)            78        131072     excellent (5/5)
+#   gemma4:26b                   44         77824     excellent (5/5)
+#   qwen3-coder:30b-a3b          53         49152     good (needed fix)
+#   glm-4.7-flash                35         43520     good (needed fix)
+#
+#   gemma4:e2b is the best choice for fast iterative coding tasks.
+#   Use gemma4:26b or qwen3-coder for tasks requiring deeper reasoning.
+# =============================================================================
+
+FROM gemma4:e2b
+
+# Full native context — fits entirely in VRAM at ~78 tok/s on P40.
+PARAMETER num_ctx 131072
+
+PARAMETER temperature 1
+PARAMETER top_k 64
+PARAMETER top_p 0.95
+
+SYSTEM """You are an expert software engineer assistant. Follow all tool-use instructions exactly as specified. Use the tools provided to read, write, and execute code. Respond concisely with working solutions.
+IMPORTANT: When making tool calls, the message content MUST be empty. Do not narrate, explain, or announce what you are about to do — output only the tool call."""
