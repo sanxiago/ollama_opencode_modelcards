@@ -2,33 +2,91 @@
 
 Benchmarked and tested Ollama model cards for use with [opencode](https://opencode.ai).
 
-Each model card sets `num_ctx` to the maximum that fits fully in VRAM, tunes parameters for reliable tool-call JSON output, and adds a system prompt aligned with opencode's agentic tool-use loop.
+Each model card sets `num_ctx` to the maximum that fits fully in VRAM (or the native context limit when the whole KV cache fits), tunes parameters for reliable tool-call JSON output, and adds a system prompt aligned with opencode's agentic tool-use loop.
 
-All benchmarks were run on a **Tesla P40 (23 GB VRAM)** on 2026-05-02.
+All benchmarks and opencode tool recovery tests were run on a **Tesla P40 (23 GB VRAM)** on 2026-05-02.
+
+---
+
+## Quick reference
+
+| model | params | gen tok/s | max VRAM ctx | tool recovery | verdict |
+|-------|--------|-----------|--------------|---------------|---------|
+| gemma4:e2b | 5.1B | **~78** | 131072 | ✗ no | explicit tasks only |
+| gemma4:e4b | 8.0B | ~48 | 131072 | ✗ no | awkward middle ground |
+| gemma4:26b | 25.8B | ~44 | 77824 | ✓ yes | best all-rounder |
+| qwen3-coder:30b-a3b | 30.5B | ~53 | 49152 | ✓ yes | fastest capable model |
+| glm-4.7-flash | ~30B | ~35 | 43520 | ✓ yes | lowest ceiling |
+
+**Tool recovery** = the model's ability to recover when a tool call fails (e.g. wrong file path) by trying an alternative approach rather than giving up or answering incorrectly.
+
+---
+
+## Tool recovery: what it means in practice
+
+Tested in opencode with two tasks that require exploration:
+
+**"read Modelfile.gemma4-e2b-opencode and summarize it"** (file is in a subdirectory)
+
+```
+gemma4:e2b  → read /testbuild/Modelfile... → Error: not found → gave up ✗
+gemma4:e4b  → read /testbuild/Modelfile... → Error: not found → asked user ✗
+gemma4:26b  → read /testbuild/Modelfile... → Error → ls → ls modelfiles/ → read → summary ✓
+```
+
+**"how many modelfiles are there?"**
+
+```
+gemma4:e2b  → glob "*modelfile*" → 0 matches → "No modelfiles found" ✗
+gemma4:e4b  → malformed glob    → 0 matches → "Did you mean to list all files?" ✗
+gemma4:26b  → glob "**/*Modelfile*" → 8 matches → "8" ✓
+```
+
+Small models (e2b, e4b) call one tool, accept the result, and stop. Larger models
+(26b, qwen3-coder) chain multiple tool calls to investigate and self-correct.
 
 ---
 
 ## Models
 
 ### gemma4:e2b — `gemma4:e2b_opencode`
-**Best choice for fast iterative coding.**
 
-- ~78 tok/s at all context sizes — fastest model in the suite
-- No VRAM cliff: full native 131072-token context fits entirely in VRAM (~2.9 GB weights)
-- 5/5 perfect tool calls out-of-the-box
+**Use for: fast explicit tasks** ("run this command", "read this exact file path")
+
+- ~78 tok/s — fastest in the suite
+- No VRAM cliff: full 131072-token context entirely in VRAM (~2.9 GB weights)
+- 5/5 clean tool calls on simple tasks
+- **Does not recover from tool errors** — fails silently on wrong paths/globs
 - Also has vision + audio capabilities
 
-| num_ctx | gen tok/s | in VRAM |
-|---------|-----------|---------|
-| 8192–131072 | ~78 | ✓ always |
+| num_ctx | gen tok/s | VRAM |
+|---------|-----------|------|
+| 8192–131072 | ~78 | fully in VRAM (no cliff) |
+
+---
+
+### gemma4:e4b — `gemma4:e4b_opencode`
+
+**Use for: not recommended** — slower than e2b, same recovery limitations as e2b
+
+- ~48 tok/s — slower than both e2b and 26b
+- No VRAM cliff: full 131072-token context in VRAM (~4.5 GB weights)
+- Does not recover from tool errors (asks user for clarification instead)
+- No clear advantage over e2b (speed) or 26b (capability)
+
+| num_ctx | gen tok/s | VRAM |
+|---------|-----------|------|
+| 8192–131072 | ~48 | fully in VRAM (no cliff) |
 
 ---
 
 ### gemma4:26b — `gemma4:26b_opencode_no_think` / `gemma4:26b_opencode_slow_max_ctx_thinking`
-**Best choice for tasks needing deeper reasoning with large context.**
 
-- ~44 tok/s fully in VRAM, highest VRAM context ceiling of the 26B+ models tested
-- 5/5 perfect tool calls out-of-the-box
+**Use for: general-purpose opencode sessions** — best balance of speed, context and capability
+
+- ~44 tok/s fully in VRAM; highest VRAM context ceiling of the 26B+ models tested
+- Full tool recovery: explores with ls, retries globs, chains tool calls
+- 5/5 clean tool calls on both simple and investigative tasks
 - Vision capability included
 
 | variant | num_ctx | gen tok/s |
@@ -41,11 +99,13 @@ VRAM cliff: between 77824 and 78848 tokens.
 ---
 
 ### qwen3-coder:30b-a3b-q4_K_M — `qwen3-coder:30b-a3b-q4_K_M_opencode_no_think` / `_opencode_slow_max_ctx_thinking`
-**Fastest of the 30B models; strong coding-specific training.**
 
-- ~53 tok/s fully in VRAM
-- `/no_think` in system disables extended reasoning chains for faster tool-use loops
-- Requires `num_ctx` to be set — ollama's 2048 default is too small for opencode's system prompt
+**Use for: fast investigative tasks** — fastest model with full recovery
+
+- ~53 tok/s — fastest model with proper tool recovery
+- Full tool recovery: chains multiple tool calls, explores on errors
+- `/no_think` disables extended reasoning for faster tool-use loops
+- **Always set `num_ctx`** — ollama's 2048 default truncates opencode's system prompt
 
 | variant | num_ctx | gen tok/s |
 |---------|---------|-----------|
@@ -59,10 +119,10 @@ VRAM cliff: between 49152 and 57344 tokens.
 ### glm-4.7-flash — `glm-4.7-flash:opencode_no_think` / `opencode_slow_max_ctx_thinking`
 
 > **Note:** The base `FROM` in these Modelfiles is `glm-4.7-flash-max-ctx:latest`, a locally
-> customised model card. Replace with `glm-4.7-flash:latest` if you haven't created that variant.
+> customised model card. Replace with `glm-4.7-flash:latest` if you do not have that variant.
 
-- ~35 tok/s fully in VRAM
-- Temperature=1 is kept (GLM was trained at this setting; lowering it did not improve tool-call reliability)
+- ~35 tok/s — slowest in the suite, lowest VRAM ceiling
+- Temperature=1 is intentional (GLM was trained at this; lowering did not improve tool-call reliability)
 
 | variant | num_ctx | gen tok/s |
 |---------|---------|-----------|
@@ -73,32 +133,23 @@ VRAM cliff: between 43520 and 44032 tokens.
 
 ---
 
-## Suite comparison
-
-| model | gen tok/s | max VRAM ctx | tool call quality |
-|-------|-----------|--------------|-------------------|
-| gemma4:e2b | **~78** | **131072** | excellent (5/5) |
-| gemma4:26b | ~44 | 77824 | excellent (5/5) |
-| qwen3-coder:30b-a3b | ~53 | 49152 | good (SYSTEM fix needed) |
-| glm-4.7-flash | ~35 | 43520 | good (SYSTEM fix needed) |
-
----
-
 ## Usage
 
 ### Build a model card
 ```bash
-ollama create gemma4:e2b_opencode -f modelfiles/Modelfile.gemma4-e2b-opencode
+ollama create gemma4:26b_opencode_no_think -f modelfiles/Modelfile.gemma4-26b-opencode-no_think
 ```
 
 ### Register in opencode
-Copy `opencode.example.json` to `~/.config/opencode/opencode.json` (or merge the `models` block into your existing config).
+Copy `opencode.example.json` to `~/.config/opencode/opencode.json` (or merge the `models` block into your existing config). The `baseURL` points to the default local ollama endpoint — change it if your instance runs elsewhere.
 
-The `baseURL` in the example config points to the default local ollama endpoint — change it if your ollama instance runs elsewhere.
+---
 
-### Key findings
+## Key findings
 
-- **Always set `num_ctx`** — ollama defaults to 2048 which truncates opencode's system prompt and causes the model to appear not to understand the harness.
-- **Benchmark your own hardware** — the VRAM cliff varies by GPU and quantisation. The scripts used here tested in 4K–8K increments around the suspected cliff, then narrowed with 1K–2K steps.
-- **Temperature=1 is fine for GLM and Gemma** — both were trained at this setting. Lowering temperature did not improve tool-call JSON reliability; the SYSTEM instruction is the effective fix.
-- **`/no_think` only applies to Qwen3** — GLM and Gemma handle thinking internally via their PARSER; no client-side toggle is needed or available.
+- **Always set `num_ctx`** — ollama defaults to 2048 which truncates opencode's system prompt and makes the model appear not to understand the harness.
+- **Tool recovery scales with model size** — models below ~25B parameters tend to accept a failed tool result and stop rather than investigating further. This is a model capability issue, not fixable via model card.
+- **VRAM cliff benchmarking** — test in 4K–8K increments around the suspected cliff, then narrow with 1K–2K steps to find the exact boundary. The cliff is sharp (one step from full speed to partial offload).
+- **Temperature=1 is fine for GLM and Gemma** — trained at this setting. The SYSTEM instruction is the effective fix for non-empty content alongside tool calls, not temperature.
+- **`/no_think` only applies to Qwen3** — GLM and Gemma handle thinking internally via their PARSER.
+- **gemma4:e4b is the odd one out** — slower than e2b, same limitations, no advantage over either extreme.

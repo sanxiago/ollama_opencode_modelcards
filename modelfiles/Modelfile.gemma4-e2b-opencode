@@ -4,12 +4,31 @@
 # GPU:   Tesla P40, 23040 MiB VRAM
 # Built: 2026-05-02
 #
-# EVALUATION VERDICT: EXCEPTIONAL — BEST SPEED IN THE SUITE
-# ----------------------------------------------------------
-# gemma4:e2b is the fastest model tested on this hardware. Because the weights
-# are only ~2.9 GB, the full native 131072-token KV cache fits entirely in the
-# remaining ~20 GB of VRAM. There is NO context/speed cliff — performance is
-# flat from 8K all the way to 131072 tokens.
+# EVALUATION VERDICT: FAST BUT LIMITED TO EXPLICIT TASKS
+# -------------------------------------------------------
+# gemma4:e2b is the fastest model in the suite (~78 tok/s), with the full
+# native 131072-token context fitting entirely in VRAM (no speed cliff).
+#
+# IMPORTANT LIMITATION — TOOL RECOVERY:
+# Tested in opencode against gemma4:e4b and gemma4:26b on investigative tasks.
+# Small models (e2b, e4b) fail to recover when a tool call returns an error —
+# they give up or answer incorrectly rather than exploring an alternative path.
+# Only gemma4:26b (and qwen3-coder) exhibited proper multi-step recovery.
+#
+# Use e2b only for explicit single-step tasks where the exact path/command is
+# known or provided by the user. For open-ended tasks, use gemma4:26b instead.
+#
+# TOOL RECOVERY TEST RESULTS — opencode, 2026-05-02
+# --------------------------------------------------
+# Task: "read Modelfile.gemma4-e2b-opencode and summarize it"
+#   e2b  (5.1B): guessed wrong path -> error -> gave up (wrong answer)      ✗
+#   e4b  (8.0B): guessed wrong path -> error -> asked user for correct path  ✗
+#   26b (25.8B): guessed wrong path -> ls -> ls modelfiles/ -> read -> ok    ✓
+#
+# Task: "how many modelfiles are there?"
+#   e2b  (5.1B): wrong glob -> "no modelfiles found"                         ✗
+#   e4b  (8.0B): malformed glob -> "unexpected pattern, did you mean...?"    ✗
+#   26b (25.8B): glob **/*Modelfile* -> 8 matches -> "8"                     ✓
 #
 # There is no "slow" variant for this model. A single model card covers all
 # use cases from quick tool-use loops to long coding sessions.
@@ -55,15 +74,16 @@
 #
 # FULL SUITE COMPARISON — P40, 2026-05-02
 # ----------------------------------------
-#   model                    gen tok/s  max VRAM ctx  tool quality
-#   -----                    ---------  ------------  ------------
-#   gemma4:e2b (this)            78        131072     excellent (5/5)
-#   gemma4:26b                   44         77824     excellent (5/5)
-#   qwen3-coder:30b-a3b          53         49152     good (needed fix)
-#   glm-4.7-flash                35         43520     good (needed fix)
+#   model        params  gen tok/s  max VRAM ctx  tool recovery
+#   -----        ------  ---------  ------------  -------------
+#   gemma4:e2b    5.1B      ~78       131072      no  — explicit tasks only
+#   gemma4:e4b    8.0B      ~48       131072      no  — asks user instead
+#   gemma4:26b   25.8B      ~44        77824      yes — full exploration
+#   qwen3-coder  30.5B      ~53        49152      yes — full exploration
+#   glm-4.7-flash ~30B      ~35        43520      yes — full exploration
 #
-#   gemma4:e2b is the best choice for fast iterative coding tasks.
-#   Use gemma4:26b or qwen3-coder for tasks requiring deeper reasoning.
+#   gemma4:e2b: best for fast explicit tasks ("run this", "read that file")
+#   gemma4:26b or qwen3-coder: required for investigative / open-ended tasks
 # =============================================================================
 
 FROM gemma4:e2b

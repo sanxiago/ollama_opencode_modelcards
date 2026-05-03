@@ -1,0 +1,62 @@
+# =============================================================================
+# Model: gemma4:e4b_opencode
+# Base:  gemma4:e4b (8.0B, Q4_K_M, vision + audio + tools + thinking)
+# GPU:   Tesla P40, 23040 MiB VRAM
+# Built: 2026-05-02
+#
+# EVALUATION VERDICT: LIMITED — SAME RECOVERY FAILURE AS e2b, SLOWER
+# -------------------------------------------------------------------
+# gemma4:e4b occupies an awkward middle ground:
+#   - Slower than gemma4:e2b (~48 tok/s vs ~78 tok/s)
+#   - Same tool-recovery failure mode as e2b (does not explore on errors)
+#   - Marginally better error messaging (asks for clarification rather than
+#     answering incorrectly) but still does not self-correct
+#   - Does not reach the reasoning capability of gemma4:26b
+#
+# Prefer gemma4:e2b_opencode for speed, or gemma4:26b_opencode_no_think for
+# capability. e4b provides no clear advantage over either.
+#
+# TOOL RECOVERY TEST RESULTS — opencode, 2026-05-02
+# --------------------------------------------------
+# Task: "read Modelfile.gemma4-e2b-opencode and summarize it"
+#   e2b  (5.1B): guessed wrong path -> error -> gave up (wrong answer)      ✗
+#   e4b  (8.0B): guessed wrong path -> error -> asked user for correct path  ✗
+#   26b (25.8B): guessed wrong path -> ls -> ls modelfiles/ -> read -> ok    ✓
+#
+# Task: "how many modelfiles are there?"
+#   e2b  (5.1B): wrong glob -> "no modelfiles found"                         ✗
+#   e4b  (8.0B): malformed glob -> "unexpected pattern, did you mean...?"    ✗
+#   26b (25.8B): glob **/*Modelfile* -> 8 matches -> "8"                     ✓
+#
+# BENCHMARK — Tesla P40, 2026-05-02
+# ----------------------------------
+#   num_ctx   gen tok/s   notes
+#   -------   ---------   -----
+#     8192       48.07    fully in VRAM
+#    32768       48.09    fully in VRAM
+#    65536       47.77    fully in VRAM
+#    98304       47.90    fully in VRAM
+#   114688       47.97    fully in VRAM
+#   131072       47.50    fully in VRAM <- chosen (native context, no cliff)
+#
+# No VRAM cliff observed (~4.5 GB weights, ~18.5 GB available for KV cache).
+#
+# FULL SUITE COMPARISON — P40, 2026-05-02
+# ----------------------------------------
+#   model        params  gen tok/s  max VRAM ctx  tool recovery
+#   -----        ------  ---------  ------------  -------------
+#   gemma4:e2b    5.1B      ~78       131072      no recovery (explicit tasks only)
+#   gemma4:e4b    8.0B      ~48       131072      no recovery (asks for help)
+#   gemma4:26b   25.8B      ~44        77824      full recovery + exploration
+#   qwen3-coder  30.5B      ~53        49152      full recovery + exploration
+# =============================================================================
+
+FROM gemma4:e4b
+
+PARAMETER num_ctx 131072
+PARAMETER temperature 1
+PARAMETER top_k 64
+PARAMETER top_p 0.95
+
+SYSTEM """You are an expert software engineer assistant. Follow all tool-use instructions exactly as specified. Use the tools provided to read, write, and execute code. Respond concisely with working solutions.
+IMPORTANT: When making tool calls, the message content MUST be empty. Do not narrate, explain, or announce what you are about to do — output only the tool call."""
