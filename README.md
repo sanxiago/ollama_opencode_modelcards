@@ -136,3 +136,4 @@ Copy `opencode.example.json` to `~/.config/opencode/opencode.json` (or merge the
 - **VRAM cliff benchmarking** — test in 4K–8K increments around the suspected cliff, then narrow with 1K–2K steps to find the exact boundary. The cliff is sharp (one step from full speed to partial offload).
 - **Temperature=1 is fine for GLM and Gemma** — trained at this setting. The SYSTEM instruction is the effective fix for non-empty content alongside tool calls, not temperature.
 - **`/no_think` only applies to Qwen3** — GLM and Gemma handle thinking internally via their PARSER.
+- **gemma4:e4b (8B) is not worth it** — tested and removed: ~48 tok/s (slower than e2b's ~78), same tool-recovery failure as e2b, no compensating advantage. Skip it; use e2b for speed or 26b for capability.
